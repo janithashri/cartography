@@ -36,7 +36,7 @@ def get_gcp_cloud_functions(gcp_project_id: str, functions_client: Resource) -> 
         error_details = json.loads(e.content.decode('utf-8'))
         reason = error_details.get('error', {}).get('errors', [{}])[0].get('reason')
         message = error_details.get('error', {}).get('message')
-        if reason == "accessNotConfigured" or "API has not been used" in message:
+        if reason == "accessNotConfigured" or (message and "API has not been used" in message):
             logger.info(f"Cloud Functions API not enabled for project {gcp_project_id}; skipping.")
         elif reason == "forbidden" or "Permission denied" in message:
             logger.warning(f"Permission denied to list Cloud Functions in project {gcp_project_id}; skipping.")
