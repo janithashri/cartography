@@ -685,7 +685,7 @@ Representation of a GCP [Role](https://cloud.google.com/iam/docs/reference/rest/
     ```
     (GCPRole)-[RESOURCE]->(GCPProject)
     ```
-### GCPCloudfunction
++### GCPCloudFunction
 
 ### `GCPCloudFunction`
 Represents a Google Cloud Function.
