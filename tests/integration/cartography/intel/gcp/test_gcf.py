@@ -99,7 +99,7 @@ def test_gcp_functions_load_and_relationships(
         MATCH (p:GCPProject{id:$PROJECT_ID})<-[:RESOURCE]-(f:GCPCloudFunction)
         RETURN count(f) AS rel_count
         """,
-        PROJECT_id=project_id,
+        PROJECT_ID=project_id,
     )
     assert rels.single()['rel_count'] == 2
 
