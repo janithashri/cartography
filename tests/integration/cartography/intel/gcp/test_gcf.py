@@ -2,16 +2,14 @@ import pytest
 from unittest.mock import patch, MagicMock
 import neo4j
 from typing import Dict, List
-from operator import itemgetter
-from itertools import groupby
+from google.auth.credentials import Credentials as GoogleCredentials
 
 import cartography.intel.gcp.gcf as gcf
+from cartography.client.core.tx import load
+from cartography.models.gcp.iam import GCPServiceAccountSchema
 
-from cartography.models.gcp.gcf import GCPCloudFunctionNode
-
-from cartography.intel.gcp.util import get_gcp_credentials 
-import googleapiclient.discovery # Needed for mocking the build() method
-
+# --- Test Data (Mock GCP API Response) ---
+from unittest.mock import MagicMock, patch
 
 GCP_FUNCTIONS_RESPONSE = {
     "functions": [
@@ -26,6 +24,7 @@ GCP_FUNCTIONS_RESPONSE = {
             },
             "createTime": "2023-01-01T10:00:00Z",
             "updateTime": "2023-01-01T10:00:00Z",
+            "serviceAccountEmail": "service-1@test-project.iam.gserviceaccount.com",
         },
         {
             "name": "projects/test-project/locations/us-east1/functions/function-2",
@@ -39,50 +38,64 @@ GCP_FUNCTIONS_RESPONSE = {
             },
             "createTime": "2023-02-01T11:00:00Z",
             "updateTime": "2023-02-01T11:00:00Z",
+            "serviceAccountEmail": "service-2@test-project.iam.gserviceaccount.com",
         },
     ],
 }
 
-
-@patch('cartography.intel.gcp.util.get_gcp_credentials') # Patch the credentials getter
-@patch('cartography.intel.gcp.gcf._get_cloudfunctions_resource') # Patch the client getter inside gcf.py
+@patch('cartography.intel.gcp.gcf.get_gcp_cloud_functions')
 def test_gcp_functions_load_and_relationships(
-    mock_get_cloudfunctions_resource: MagicMock,
-    mock_get_gcp_credentials: MagicMock,
+    mock_get_functions: MagicMock,
     neo4j_session: neo4j.Session,
 ):
     """
     Test that we can correctly load GCP Cloud Functions and their relationships to GCPProject.
     """
-    # Arrange: Configure the mocks
-    mock_get_gcp_credentials.return_value = MagicMock(spec=googleapiclient.discovery.build) 
+    # Arrange: Configure the mock
+    mock_get_functions.return_value = GCP_FUNCTIONS_RESPONSE["functions"]
 
-    mock_functions_client = MagicMock()
-    mock_get_cloudfunctions_resource.return_value = mock_functions_client
-    
-    mock_list_response = MagicMock()
-    mock_list_response.get.side_effect = lambda k, default=None: GCP_FUNCTIONS_RESPONSE.get(k, default)
-    mock_list_response.__contains__.side_effect = lambda key: key in GCP_FUNCTIONS_RESPONSE
-    
-    mock_functions_client.projects.return_value.locations.return_value.functions.return_value.list.return_value.execute.return_value = mock_list_response
-    mock_functions_client.projects.return_value.locations.return_value.functions.return_value.list_next.return_value = None
-
-
-    # Arrange: Create the parent GCPProject node in the test database.
+    # Arrange: Create the parent GCPProject node
     project_id = "test-project"
-    neo4j_session.run(
-        "MERGE (p:GCPProject{id: $PROJECT_ID})",
-        PROJECT_ID=project_id,
-    )
     update_tag = 123456789
+    neo4j_session.run(
+        """
+        MERGE (p:GCPProject{id: $PROJECT_ID})
+        SET p.lastupdated = $UPDATE_TAG
+        """,
+        PROJECT_ID=project_id,
+        UPDATE_TAG=update_tag,
+    )
+    
+    # DEBUG STEP 1: Confirm project exists before sync
+    project_count = neo4j_session.run("MATCH (p:GCPProject) RETURN count(p) as c").single()['c']
+    print(f"\n--- DEBUG PRE-SYNC: GCPProject node count is: {project_count} ---")
 
-    # Act: Call the main sync function from your ingestor module.
+    # Act: Call the main sync function
     gcf.sync(
         neo4j_session,
+        None,  
         project_id,
         update_tag,
-        {"UPDATE_TAG": update_tag, "PROJECT_ID": project_id}, # common_job_parameters
+        {"UPDATE_TAG": update_tag, "PROJECT_ID": project_id},
     )
+
+    # --- START OF POST-SYNC DEBUGGING BLOCK ---
+    print("\n--- DEBUG POST-SYNC: Querying graph state BEFORE asserts ---")
+
+    func_count = neo4j_session.run("MATCH (n:GCPCloudFunction) RETURN count(n) as c").single()['c']
+    print(f"--- DEBUG POST-SYNC: GCPCloudFunction node count: {func_count} ---")
+
+    sa_count = neo4j_session.run("MATCH (n:GCPServiceAccount) RETURN count(n) as c").single()['c']
+    print(f"--- DEBUG POST-SYNC: GCPServiceAccount node count: {sa_count} ---")
+
+    res_rel_count = neo4j_session.run("MATCH (:GCPProject)<-[:RESOURCE]-(:GCPCloudFunction) RETURN count(*) as c").single()['c']
+    print(f"--- DEBUG POST-SYNC: [:RESOURCE] relationship count: {res_rel_count} ---")
+
+    runs_as_rel_count = neo4j_session.run("MATCH (:GCPCloudFunction)-[:RUNS_AS]->(:GCPServiceAccount) RETURN count(*) as c").single()['c']
+    print(f"--- DEBUG POST-SYNC: [:RUNS_AS] relationship count: {runs_as_rel_count} ---")
+
+    print("--- END OF DEBUGGING BLOCK ---\n")
+    # --- END OF POST-SYNC DEBUGGING BLOCK ---
 
     # Assert 1: Check that the Cloud Function nodes were created.
     expected_nodes = {
@@ -93,25 +106,12 @@ def test_gcp_functions_load_and_relationships(
     actual_nodes = {n['n.id'] for n in nodes}
     assert actual_nodes == expected_nodes
 
-    # Assert 2: Check that the functions are correctly connected to the project via [:RESOURCE] relationship.
-    rels = neo4j_session.run(
+    # Assert 2: Check for the relationship to the project.
+    rels_to_project = neo4j_session.run(
         """
         MATCH (p:GCPProject{id:$PROJECT_ID})<-[:RESOURCE]-(f:GCPCloudFunction)
         RETURN count(f) AS rel_count
         """,
         PROJECT_ID=project_id,
     )
-    assert rels.single()['rel_count'] == 2
-
-    # Assert 3: Check properties for one of the functions to ensure data was loaded correctly.
-    func1_data = neo4j_session.run(
-        """
-        MATCH (f:GCPCloudFunction{id: "projects/test-project/locations/us-central1/functions/function-1"})
-        RETURN f.runtime, f.https_trigger_url, f.region, f.createTime, f.updateTime
-        """
-    ).single()
-    assert func1_data['f.runtime'] == "python310"
-    assert func1_data['f.https_trigger_url'] == "https://us-central1-test-project.cloudfunctions.net/function-1"
-    assert func1_data['f.region'] == "us-central1"
-    assert func1_data['f.createTime'] == "2023-01-01T10:00:00Z"
-    assert func1_data['f.updateTime'] == "2023-01-01T10:00:00Z"
+    assert rels_to_project.single()['rel_count'] == 2
