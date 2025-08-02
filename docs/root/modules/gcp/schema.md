@@ -658,7 +658,7 @@ Representation of a GCP [Service Account](https://cloud.google.com/iam/docs/refe
 - GCPServiceAccounts are resources of GCPProjects.
 
     ```
-    (GCPServiceAccount)-[RESOURCE]->(GCPProject)
+    (GCPProject)-[RESOURCE]->(GCPServiceAccount)
     ```
 
 ### GCPRole
@@ -683,12 +683,12 @@ Representation of a GCP [Role](https://cloud.google.com/iam/docs/reference/rest/
 - GCPRoles are resources of GCPProjects.
 
     ```
-    (GCPRole)-[RESOURCE]->(GCPProject)
+    (GCPProject)-[RESOURCE]->(GCPRole)
     ```
 
 ### GCPCloudFunction
 
-
+Representation of a Google [Cloud Function](https://cloud.google.com/functions/docs/reference/rest/v1/projects.locations.functions).
 
 | Field                 | Description                                                                 |
 | --------------------  | --------------------------------------------------------------------------- |
@@ -710,15 +710,10 @@ Representation of a GCP [Role](https://cloud.google.com/iam/docs/reference/rest/
 
 #### Relationships
 
-- GCPRoles are resources of GCPProjects.
-
-    ```
-    (GCPRole)-[RESOURCE]->(GCPProject)
-    ```
 - GCPCloudFunctions are resources of GCPProjects.
 
     ```
-    (GCPCloudFunction)-[RESOURCE]->(GCPProject)
+    (GCPProject)-[RESOURCE]->(GCPCloudFunction)
     ```
 
 - GCPCloudFunctions run as GCPServiceAccounts.

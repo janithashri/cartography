@@ -1,16 +1,12 @@
 import pytest
 from unittest.mock import patch, MagicMock
 import neo4j
-from typing import Dict, List
-from google.auth.credentials import Credentials as GoogleCredentials
 
 import cartography.intel.gcp.gcf as gcf
 from cartography.client.core.tx import load
 from cartography.models.gcp.iam import GCPServiceAccountSchema
 
 # --- Test Data (Mock GCP API Response) ---
-from unittest.mock import MagicMock, patch
-
 GCP_FUNCTIONS_RESPONSE = {
     "functions": [
         {
@@ -49,14 +45,14 @@ def test_gcp_functions_load_and_relationships(
     neo4j_session: neo4j.Session,
 ):
     """
-    Test that we can correctly load GCP Cloud Functions and their relationships to GCPProject.
+    Test that we can correctly load GCP Cloud Functions and their relationships.
     """
     # Arrange: Configure the mock
     mock_get_functions.return_value = GCP_FUNCTIONS_RESPONSE["functions"]
-
-    # Arrange: Create the parent GCPProject node
     project_id = "test-project"
     update_tag = 123456789
+
+    # Arrange: Create the parent GCPProject node
     neo4j_session.run(
         """
         MERGE (p:GCPProject{id: $PROJECT_ID})
@@ -65,37 +61,29 @@ def test_gcp_functions_load_and_relationships(
         PROJECT_ID=project_id,
         UPDATE_TAG=update_tag,
     )
-    
-    # DEBUG STEP 1: Confirm project exists before sync
-    project_count = neo4j_session.run("MATCH (p:GCPProject) RETURN count(p) as c").single()['c']
-    print(f"\n--- DEBUG PRE-SYNC: GCPProject node count is: {project_count} ---")
+
+    # Arrange: Pre-load the GCPServiceAccount nodes that the functions run as
+    sa1_email = "service-1@test-project.iam.gserviceaccount.com"
+    sa2_email = "service-2@test-project.iam.gserviceaccount.com"
+    # NOTE: Our GCF model links to Service Accounts by their email, so we set the `id` here to be the email.
+    sa_properties_1 = {"id": sa1_email, "email": sa1_email, "projectId": project_id}
+    sa_properties_2 = {"id": sa2_email, "email": sa2_email, "projectId": project_id}
+    load(
+        neo4j_session,
+        GCPServiceAccountSchema(),
+        [sa_properties_1, sa_properties_2],
+        lastupdated=update_tag,
+        projectId=project_id,
+    )
 
     # Act: Call the main sync function
     gcf.sync(
         neo4j_session,
-        None,  
+        None,  # The client is not used because the `get` function is patched
         project_id,
         update_tag,
         {"UPDATE_TAG": update_tag, "PROJECT_ID": project_id},
     )
-
-    # --- START OF POST-SYNC DEBUGGING BLOCK ---
-    print("\n--- DEBUG POST-SYNC: Querying graph state BEFORE asserts ---")
-
-    func_count = neo4j_session.run("MATCH (n:GCPCloudFunction) RETURN count(n) as c").single()['c']
-    print(f"--- DEBUG POST-SYNC: GCPCloudFunction node count: {func_count} ---")
-
-    sa_count = neo4j_session.run("MATCH (n:GCPServiceAccount) RETURN count(n) as c").single()['c']
-    print(f"--- DEBUG POST-SYNC: GCPServiceAccount node count: {sa_count} ---")
-
-    res_rel_count = neo4j_session.run("MATCH (:GCPProject)<-[:RESOURCE]-(:GCPCloudFunction) RETURN count(*) as c").single()['c']
-    print(f"--- DEBUG POST-SYNC: [:RESOURCE] relationship count: {res_rel_count} ---")
-
-    runs_as_rel_count = neo4j_session.run("MATCH (:GCPCloudFunction)-[:RUNS_AS]->(:GCPServiceAccount) RETURN count(*) as c").single()['c']
-    print(f"--- DEBUG POST-SYNC: [:RUNS_AS] relationship count: {runs_as_rel_count} ---")
-
-    print("--- END OF DEBUGGING BLOCK ---\n")
-    # --- END OF POST-SYNC DEBUGGING BLOCK ---
 
     # Assert 1: Check that the Cloud Function nodes were created.
     expected_nodes = {
@@ -107,11 +95,24 @@ def test_gcp_functions_load_and_relationships(
     assert actual_nodes == expected_nodes
 
     # Assert 2: Check for the relationship to the project.
+    # The relationship is (GCPProject)-[:RESOURCE]->(GCPCloudFunction)
     rels_to_project = neo4j_session.run(
         """
-        MATCH (p:GCPProject{id:$PROJECT_ID})<-[:RESOURCE]-(f:GCPCloudFunction)
+        MATCH (p:GCPProject{id:$PROJECT_ID})-[:RESOURCE]->(f:GCPCloudFunction)
         RETURN count(f) AS rel_count
         """,
         PROJECT_ID=project_id,
     )
     assert rels_to_project.single()['rel_count'] == 2
+
+    # Assert 3: Check for the relationship to the service account.
+    # The relationship is (GCPCloudFunction)-[:RUNS_AS]->(GCPServiceAccount)
+    rels_to_sa = neo4j_session.run(
+        """
+        MATCH (f:GCPCloudFunction)-[:RUNS_AS]->(sa:GCPServiceAccount)
+        WHERE f.project_id = $PROJECT_ID
+        RETURN count(sa) as rel_count
+        """,
+        PROJECT_ID=project_id,
+    )
+    assert rels_to_sa.single()['rel_count'] == 2
