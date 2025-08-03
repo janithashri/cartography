@@ -23,6 +23,9 @@ Representation of an AWS Account.
                                 :AWSInspectorFinding,
                                 :AWSInspectorPackage,
                                 :AWSLambda,
+                                :AWSLambdaEventSourceMapping,
+                                :AWSLambdaFunctionAlias,
+                                :AWSLambdaLayer,
                                 :AWSPrincipal,
                                 :AWSUser,
                                 :AWSVpc,
@@ -360,6 +363,7 @@ Representation of an AWS [Lambda Function](https://docs.aws.amazon.com/lambda/la
 | architectures | The instruction set architecture that the function supports. Architecture is a string array with one of the valid values. |
 | masterarn | For Lambda@Edge functions, the ARN of the main function. |
 | kmskeyarn | The KMS key that's used to encrypt the function's environment variables. This key is only returned if you've configured a customer managed key. |
+| region | The AWS region where the Lambda function is deployed. |
 
 #### Relationships
 
@@ -401,18 +405,23 @@ Representation of an [AWSLambdaFunctionAlias](https://docs.aws.amazon.com/lambda
 | firstseen| Timestamp of when a sync job first discovered this node  |
 | lastupdated |  Timestamp of the last time the node was updated |
 | **id** | The arn of the lambda function alias|
-| name |  The name of the lambda function alias |
+| arn | The arn of the lambda function alias|
+| aliasname |  The name of the lambda function alias |
 | functionversion | The function version that the alias invokes.|
 | revisionid |  A unique identifier that changes when you update the alias. |
 | description |  The description of the alias. |
 
 #### Relationships
 
-- AWSLambda functions may also have aliases.
+- AWSLambdaFunctionAlias belong to AWS Accounts.
+    ```cypher
+    (:AWSAccount)-[:RESOURCE]->(:AWSLambdaFunctionAlias)
+    ```
 
-        ```
-        (AWSLambda)-[KNOWN_AS]->(AWSLambdaFunctionAlias)
-        ```
+- AWSLambda functions may also have aliases.
+    ```cypher
+    (:AWSLambda)-[:KNOWN_AS]->(:AWSLambdaFunctionAlias)
+    ```
 
 ### AWSLambdaEventSourceMapping
 
@@ -439,10 +448,14 @@ Representation of an [AWSLambdaEventSourceMapping](https://docs.aws.amazon.com/l
 
 #### Relationships
 
-- AWSLambda functions may have the resource AWSLambdaEventSourceMapping.
-
+- AWSLambdaEventSourceMapping belong to AWS Accounts.
     ```cypher
-    (AWSLambda)-[RESOURCE]->(AWSLambdaEventSourceMapping)
+    (:AWSAccount)-[:RESOURCE]->(:AWSLambdaEventSourceMapping)
+    ```
+
+- AWSLambda functions may have the resource AWSLambdaEventSourceMapping.
+    ```cypher
+    (:AWSLambda)-[:RESOURCE]->(:AWSLambdaEventSourceMapping)
     ```
 
 ### AWSLambdaLayer
@@ -454,16 +467,21 @@ Representation of an [AWSLambdaLayer](https://docs.aws.amazon.com/lambda/latest/
 | firstseen| Timestamp of when a sync job first discovered this node  |
 | lastupdated |  Timestamp of the last time the node was updated |
 | **id** | The arn of the lambda function layer|
+| arn | The arn of the lambda function layer|
 | codesize | The size of the layer archive in bytes.|
 | signingprofileversionarn | The Amazon Resource Name (ARN) for a signing profile version.|
 | signingjobarn | The Amazon Resource Name (ARN) of a signing job. |
 
 #### Relationships
 
-- AWSLambda functions has AWS Lambda Layers.
-
+- AWSLambdaLayer belong to AWS Accounts
     ```cypher
-    (AWSLambda)-[HAS]->(AWSLambdaLayer)
+    (:AWSAccount)-[:RESOURCE]->(:AWSLambdaLayer)
+    ```
+
+- AWSLambda functions has AWS Lambda Layers.
+    ```cypher
+    (:AWSLambda)-[:HAS]->(:AWSLambdaLayer)
     ```
 
 ### AWSPolicy
@@ -1868,6 +1886,33 @@ Representation of an AWS Elastic Load Balancer V2 [Listener](https://docs.aws.am
 - ACM Certificates may be used by ELBV2Listeners.
     ```
     (:ACMCertificate)-[:USED_BY]->(:ELBV2Listener)
+    ```
+
+### EventBridgeRule
+Representation of an AWS [EventBridge Rule](https://docs.aws.amazon.com/eventbridge/latest/APIReference/API_ListRules.html)
+| Field | Description |
+|-------|-------------|
+| firstseen| Timestamp of when a sync job first discovered this node  |
+| lastupdated |  Timestamp of the last time the node was updated |
+| **id** | System-assigned eventbridge rule ID |
+| arn | The Amazon Resource Name (ARN) of the rule |
+| region | The region of the rule |
+| name | The name of the rule |
+| role_arn | The Amazon Resource Name (ARN) of the role that is used for target invocation |
+| event_pattern | The event pattern of the rule |
+| state | The state of the rule, Valid Values: ENABLED, DISABLED, ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS |
+| description | The description of the rule |
+| schedule_expression | The scheduling expression |
+| managed_by | If the rule was created on behalf of your account by an AWS service, this field displays the principal name of the service that created the rule |
+| event_bus_name | The name or ARN of the event bus associated with the rule |
+#### Relationships
+- EventBridge Rules are resource under the AWS Account.
+    ```
+    (AWSAccount)-[RESOURCE]->(EventBridgeRule)
+    ```
+ - EventBridge Rules are associated with the AWS Role.
+    ```
+    (EventBridgeRule)-[ASSOCIATED_WITH]->(AWSRole)
     ```
 
 ### Ip
@@ -3411,9 +3456,9 @@ Representation of an AWS ECS [Service](https://docs.aws.amazon.com/AmazonECS/lat
     (:ECSCluster)-[:HAS_SERVICE]->(:ECSService)
     ```
 
-- An ECSCluster has ECSContainerInstances
+- An ECSService has ECSTasks
     ```
-    (:ECSCluster)-[:HAS_CONTAINER_INSTANCE]->(:ECSContainerInstance)
+    (:ECSService)-[:HAS_TASK]->(:ECSTask)
     ```
 
 ### ECSTaskDefinition
