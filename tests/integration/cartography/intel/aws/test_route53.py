@@ -3,6 +3,7 @@ import cartography.util
 import tests.data.aws.ec2.elastic_ip_addresses
 import tests.data.aws.ec2.load_balancers
 import tests.data.aws.route53
+from tests.integration.util import check_rels
 
 TEST_UPDATE_TAG = 123456789
 TEST_ZONE_ID = "TESTZONEID"
@@ -297,24 +298,25 @@ def test_link_sub_zones_handles_cycles(neo4j_session):
         neo4j_session, TEST_UPDATE_TAG, TEST_AWS_ACCOUNTID,
     )
 
+    
     # Assert: Verify the graph state is correct after the run.
-    # 1. Test that the CORRECT subzone relationship WAS created.
-    result = neo4j_session.run(
-        """
-        MATCH (parent:AWSDNSZone{name:$ParentName})-[r:SUBZONE]->(child:AWSDNSZone{name:$ChildName})
-        RETURN count(r) AS rel_count
-        """,
-        ParentName='example.com',
-        ChildName='sub.example.com',
+    # This single check verifies that the correct relationship `(example.com)->[:SUBZONE]->(sub.example.com)` exists
+    # and that no incorrect relationships (e.g. to 'unrelated.io') exist.
+    expected_rels = {('example.com', 'sub.example.com')}
+    actual_rels = check_rels(
+        neo4j_session,
+        'AWSDNSZone',
+        'name',
+        'AWSDNSZone',
+        'name',
+        'SUBZONE',
+        rel_direction_right=True,
     )
-    assert result.single()['rel_count'] == 1
+    assert actual_rels == expected_rels
 
-    # 2. Test that NO incorrect relationships were created with the unrelated zone.
-    result = neo4j_session.run(
-        """
-        MATCH (z1:AWSDNSZone)-[r:SUBZONE]-(z2:AWSDNSZone{name:$UnrelatedName})
-        RETURN count(r) AS rel_count
-        """,
-        UnrelatedName='unrelated.io',
-    )
-    assert result.single()['rel_count'] == 0
+
+
+
+
+
+
