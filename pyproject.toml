@@ -12,7 +12,6 @@ write_to = "cartography/_version.py"
 
 [project]
 name = "cartography"
-version = "0.0.1"
 description = "Explore assets and their relationships across your technical infrastructure."
 readme = "README.md"
 license = {text = "apache2"}
@@ -31,7 +30,7 @@ classifiers = [
   'Topic :: Software Development :: Libraries',
   'Topic :: Software Development :: Libraries :: Python Modules',
 ]
-requires-python = ">=3.10 , <4.0.0"
+requires-python = ">=3.10"
 dependencies = [
     "backoff>=2.1.2",
     "boto3>=1.15.1",
