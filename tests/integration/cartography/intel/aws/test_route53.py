@@ -302,8 +302,8 @@ def test_link_sub_zones_handles_cycles(neo4j_session):
     # Assert: Verify the graph state is correct after the run.
     # This single check verifies that the correct relationship `(example.com)->[:SUBZONE]->(sub.example.com)` exists
     # and that no incorrect relationships (e.g. to 'unrelated.io') exist.
-    expected_rels = {('example.com', 'sub.example.com')}
-    actual_rels = check_rels(
+    expected = {('example.com', 'sub.example.com')}
+    actual = check_rels(
         neo4j_session,
         'AWSDNSZone',
         'name',
@@ -312,7 +312,7 @@ def test_link_sub_zones_handles_cycles(neo4j_session):
         'SUBZONE',
         rel_direction_right=True,
     )
-    assert actual_rels == expected_rels
+    assert actual == expected
 
 
 
