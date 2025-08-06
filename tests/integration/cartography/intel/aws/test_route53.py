@@ -268,3 +268,53 @@ def test_load_dnspointsto_elasticip_relationships(neo4j_session):
     )
     expected = {("hello.what.example.com", "192.168.1.1")}
     assert actual == expected
+
+def test_link_sub_zones_handles_cycles(neo4j_session):
+    """
+    Test that link_sub_zones correctly creates a valid [:SUBZONE] relationship
+    but does NOT create an incorrect one between unrelated zones that share a name server.
+    """
+    # Arrange: Create the AWSAccount node that the link_sub_zones query depends on.
+    neo4j_session.run(
+        """
+        MERGE (a:AWSAccount{id:$AccountId})
+        SET a.lastupdated=$UpdateTag
+        """,
+        AccountId=TEST_AWS_ACCOUNTID,
+        UpdateTag=TEST_UPDATE_TAG,
+    )
+
+    # Arrange: Load the test DNS data. This will now correctly link to the account created above.
+    cartography.intel.aws.route53.load_dns_details(
+        neo4j_session,
+        tests.data.aws.route53.GET_ZONES_FOR_CYCLE_TEST,
+        TEST_AWS_ACCOUNTID,
+        TEST_UPDATE_TAG,
+    )
+
+    # Act: Run the subzone linking function that contains the fix.
+    cartography.intel.aws.route53.link_sub_zones(
+        neo4j_session, TEST_UPDATE_TAG, TEST_AWS_ACCOUNTID,
+    )
+
+    # Assert: Verify the graph state is correct after the run.
+    # 1. Test that the CORRECT subzone relationship WAS created.
+    result = neo4j_session.run(
+        """
+        MATCH (parent:AWSDNSZone{name:$ParentName})-[r:SUBZONE]->(child:AWSDNSZone{name:$ChildName})
+        RETURN count(r) AS rel_count
+        """,
+        ParentName='example.com',
+        ChildName='sub.example.com',
+    )
+    assert result.single()['rel_count'] == 1
+
+    # 2. Test that NO incorrect relationships were created with the unrelated zone.
+    result = neo4j_session.run(
+        """
+        MATCH (z1:AWSDNSZone)-[r:SUBZONE]-(z2:AWSDNSZone{name:$UnrelatedName})
+        RETURN count(r) AS rel_count
+        """,
+        UnrelatedName='unrelated.io',
+    )
+    assert result.single()['rel_count'] == 0
