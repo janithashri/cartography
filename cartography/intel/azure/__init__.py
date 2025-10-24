@@ -7,6 +7,7 @@ import neo4j
 from cartography.config import Config
 from cartography.util import timeit
 
+from . import application_gateway
 from . import app_service
 from . import compute
 from . import container_instances
@@ -60,42 +61,7 @@ def _sync_one_subscription(
         update_tag,
         common_job_parameters,
     )
-    functions.sync(
-        neo4j_session,
-        credentials,
-        subscription_id,
-        update_tag,
-        common_job_parameters,
-    )
-    logic_apps.sync(
-        neo4j_session,
-        credentials,
-        subscription_id,
-        update_tag,
-        common_job_parameters,
-    )
-    sql.sync(
-        neo4j_session,
-        credentials.credential,
-        subscription_id,
-        update_tag,
-        common_job_parameters,
-    )
-    storage.sync(
-        neo4j_session,
-        credentials.credential,
-        subscription_id,
-        update_tag,
-        common_job_parameters,
-    )
-    resource_groups.sync(
-        neo4j_session,
-        credentials,
-        subscription_id,
-        update_tag,
-        common_job_parameters,
-    )
-    data_lake.sync(
+    application_gateway.sync(
         neo4j_session,
         credentials,
         subscription_id,
